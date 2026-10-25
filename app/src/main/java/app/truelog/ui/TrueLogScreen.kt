@@ -83,7 +83,7 @@ fun TrueLogScreen(recorder: Recorder, onManualSave: () -> Unit, onToggleSimulati
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             BasicButton("← 처음 화면", onClick = onBack)
-            Text("개발 정보 · v0.5", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Text100)
+            Text("개발 정보 · v0.6", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Text100)
             Text(
                 "Vehicle SDK ${BuildConfig.VEHICLE_SDK_VERSION} · " +
                     (if (live.sdkReady) "SDK 연결됨" else "SDK 연결 전") + " · " +

@@ -21,7 +21,12 @@ fun AppRoot(recorder: Recorder, onManualSave: () -> Unit, onToggleSimulation: ()
     if (openId != null) {
         val detail = remember(openId, records) { recorder.loadDetail(openId) }
         if (detail != null) {
-            RecordDetailScreen(detail, recorder.similarTo(detail.summary), onBack = { detailId = null })
+            RecordDetailScreen(
+                detail,
+                recorder.similarTo(detail.summary),
+                onBack = { detailId = null },
+                onShared = { recorder.markShared(it) },
+            )
             return
         }
     }

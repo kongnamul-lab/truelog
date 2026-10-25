@@ -1,5 +1,6 @@
 package app.truelog.ui
 
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -73,7 +74,12 @@ private const val WINDOW_MS = 30_000L
  * 원인 추측은 하지 않는다.
  */
 @Composable
-fun RecordDetailScreen(detail: RecordDetail, similar: List<RecordSummary>, onBack: () -> Unit) {
+fun RecordDetailScreen(
+    detail: RecordDetail,
+    similar: List<RecordSummary>,
+    onBack: () -> Unit,
+    onShared: (String) -> Unit = {},
+) {
     val r = detail.summary
     val t0 = r.triggeredAt
     var shareStep by remember(r.id) { mutableStateOf(ShareStep.NONE) }
@@ -210,6 +216,7 @@ fun RecordDetailScreen(detail: RecordDetail, similar: List<RecordSummary>, onBac
                 reportUrl = ReportPayload.build(detail, ShareScope(includeDrivingData = includeDriving))
                 SignalHub.log("리포트 링크 생성: ${reportUrl?.length ?: 0}자")
                 android.util.Log.i("TrueLog", "REPORT_URL ${reportUrl}")
+                onShared(r.id) // 보낸 기록은 자동 정리에서 제외
                 shareStep = ShareStep.QR
             },
         )
@@ -317,7 +324,12 @@ private fun QrOverlay(url: String, includeDriving: Boolean, forMechanic: Boolean
                 contentAlignment = Alignment.Center,
             ) {
                 if (bitmap != null) {
-                    Image(bitmap.asImageBitmap(), contentDescription = "리포트 QR 코드", modifier = Modifier.size(520.dp))
+                    Image(
+                        bitmap.asImageBitmap(),
+                        contentDescription = "리포트 QR 코드",
+                        modifier = Modifier.size(580.dp),
+                        filterQuality = FilterQuality.None, // 확대할 때 칸 경계가 번지지 않게(인식률)
+                    )
                 } else {
                     Text("QR 코드를 만들지 못했어요", fontSize = 24.sp, color = Warning)
                 }

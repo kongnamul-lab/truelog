@@ -38,7 +38,16 @@ data class RecordSummary(
     val conditions: String,
     val hash: String,
     val unchanged: Boolean,
-)
+    /** 쉬운 문장용 값 (v0.6). 기록 순간 속도, 감지 직전 5초 최고 속도, 배터리. */
+    val speedAt: Float? = null,
+    val peakKmh: Float? = null,
+    val socAt: Float? = null,
+    /** 리포트로 보낸 적이 있는 기록 (자동 정리에서 제외). */
+    val shared: Boolean = false,
+) {
+    /** 정비소에 가져갈 "차량 경고" 기록인지 (목록의 주황 점). */
+    val isWarning: Boolean get() = reason == "출력 제한 경고"
+}
 
 /** 정차 후 상세 화면용 전체 기록. */
 data class RecordDetail(
@@ -71,6 +80,7 @@ class Recorder(
 
     private val dir = File(context.filesDir, "records").apply { mkdirs() }
     private val prefs = context.getSharedPreferences("truelog_chain", Context.MODE_PRIVATE)
+    private val sharedPrefs = context.getSharedPreferences("truelog_shared", Context.MODE_PRIVATE)
     private val buffer = ArrayDeque<Sample>()
 
     private var pending: Pair<Trigger, Long>? = null
@@ -93,6 +103,28 @@ class Recorder(
     val records: StateFlow<List<RecordSummary>> = _records.asStateFlow()
 
     init {
+        reloadRecords()
+        cleanupOld(System.currentTimeMillis())
+    }
+
+    /** QR 리포트를 만든 기록은 자동 정리에서 제외한다. */
+    fun markShared(id: String) {
+        if (sharedPrefs.getBoolean(id, false)) return
+        sharedPrefs.edit().putBoolean(id, true).apply()
+        reloadRecords()
+    }
+
+    /**
+     * 90일이 지난 기록을 정리한다(개인정보 최소 보관).
+     * 차량 경고 기록, 직접 저장한 기록, 리포트로 보낸 기록은 남긴다.
+     */
+    private fun cleanupOld(now: Long) {
+        val old = _records.value.filter {
+            now - it.triggeredAt > KEEP_MS && !it.isWarning && !it.shared && it.reason != "방금 상황 저장"
+        }
+        if (old.isEmpty()) return
+        old.forEach { File(dir, "${it.id}.json").delete() }
+        SignalHub.log("90일 지난 기록 ${old.size}건 정리")
         reloadRecords()
     }
 
@@ -122,7 +154,7 @@ class Recorder(
         }
 
         tickCount++
-        if (tickCount % 10 == 0) ribbon = buildRibbon(now) // 1초마다 갱신
+        if (tickCount % 10L == 0L) ribbon = buildRibbon(now) // 1초마다 갱신
         _status.value = RecorderStatus(
             bufferSeconds = ((now - (buffer.firstOrNull()?.t ?: now)) / 1000).toInt(),
             lockingReason = pending?.first?.label(),
@@ -155,16 +187,7 @@ class Recorder(
             )
         }
         RecordDetail(
-            summary = RecordSummary(
-                id = body.getString("id"),
-                reason = body.getString("reason"),
-                simulated = body.optBoolean("simulated", false),
-                triggeredAt = body.getLong("triggeredAt"),
-                sampleCount = samples.size,
-                conditions = body.optString("conditions", ""),
-                hash = stored,
-                unchanged = sha256(record) == stored,
-            ),
+            summary = summaryOf(body, record, stored),
             prevHash = body.optString("prevHash", ""),
             samples = samples,
         )
@@ -176,6 +199,40 @@ class Recorder(
             it.id != summary.id && it.reason == summary.reason &&
                 kotlin.math.abs(it.triggeredAt - summary.triggeredAt) <= PATTERN_WINDOW_MS
         }
+
+
+    /** 파일 내용으로 목록·상세 공통 요약을 만든다. */
+    private fun summaryOf(body: JSONObject, record: String, stored: String): RecordSummary {
+        val t0 = body.getLong("triggeredAt")
+        val arr = body.getJSONArray("samples")
+        var at: JSONObject? = null
+        var best = Long.MAX_VALUE
+        var peak: Float? = null
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            val t = o.getLong("t")
+            val d = kotlin.math.abs(t - t0)
+            if (d < best) { best = d; at = o }
+            if (t in (t0 - PEAK_LOOKBACK_MS)..t0) {
+                o.optFloatOrNull("speedKmh")?.let { v -> peak = maxOf(peak ?: v, v) }
+            }
+        }
+        val id = body.getString("id")
+        return RecordSummary(
+            id = id,
+            reason = body.getString("reason"),
+            simulated = body.optBoolean("simulated", false),
+            triggeredAt = t0,
+            sampleCount = arr.length(),
+            conditions = body.optString("conditions", ""),
+            hash = stored,
+            unchanged = sha256(record) == stored,
+            speedAt = at?.optFloatOrNull("speedKmh"),
+            peakKmh = peak,
+            socAt = at?.optFloatOrNull("soc"),
+            shared = sharedPrefs.getBoolean(id, false),
+        )
+    }
 
     private fun JSONObject.optFloatOrNull(key: String): Float? =
         if (!has(key) || isNull(key)) null else optDouble(key).toFloat()
@@ -272,17 +329,7 @@ class Recorder(
                     val wrapper = JSONObject(file.readText())
                     val record = wrapper.getString("record")
                     val stored = wrapper.getString("hash")
-                    val body = JSONObject(record)
-                    RecordSummary(
-                        id = body.getString("id"),
-                        reason = body.getString("reason"),
-                        simulated = body.optBoolean("simulated", false),
-                        triggeredAt = body.getLong("triggeredAt"),
-                        sampleCount = body.getJSONArray("samples").length(),
-                        conditions = body.optString("conditions", ""),
-                        hash = stored,
-                        unchanged = sha256(record) == stored,
-                    )
+                    summaryOf(JSONObject(record), record, stored)
                 }.getOrNull()
             }
     }
@@ -298,6 +345,7 @@ class Recorder(
         private const val LOW_SOC = 20f
         private const val HARD_BRAKE_KMH_PER_S = 15f
         private const val PEAK_LOOKBACK_MS = 5_000L
+        private const val KEEP_MS = 90L * 24 * 60 * 60 * 1000
         private const val PATTERN_WINDOW_MS = 14L * 24 * 60 * 60 * 1000
         private const val KEY_HEAD = "head"
         private const val GENESIS = "0000000000000000000000000000000000000000000000000000000000000000"

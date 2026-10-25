@@ -25,7 +25,7 @@ data class ShareScope(val includeDrivingData: Boolean)
  */
 object ReportPayload {
 
-    private const val VERSION = 1
+    private const val VERSION = 2 // v2: 2초 간격 31점, 해시 앞 16자리 (QR 칸 수 줄이기)
     private const val SHOW_LIMIT_MS = 24L * 60 * 60 * 1000
 
     fun build(detail: RecordDetail, scope: ShareScope, now: Long = System.currentTimeMillis()): String {
@@ -39,17 +39,17 @@ object ReportPayload {
             .put("t0", t0)
             .put("c", r.conditions)
             .put("ok", r.unchanged)
-            .put("h", r.hash)
+            .put("h", r.hash.take(16))
             .put("exp", now + SHOW_LIMIT_MS)
 
         if (scope.includeDrivingData) {
-            // 1초 간격 61개 점(-30초 ~ +30초)으로 줄여 담는다.
+            // 2초 간격 31개 점(-30초 ~ +30초)으로 줄여 담는다.
             val speed = JSONArray()
             val brake = JSONArray()
             val steer = JSONArray()
-            for (sec in -30..30) {
-                val from = t0 + sec * 1000L - 500
-                val to = t0 + sec * 1000L + 500
+            for (sec in -30..30 step 2) {
+                val from = t0 + sec * 1000L - 1000
+                val to = t0 + sec * 1000L + 1000
                 val bucket = detail.samples.filter { it.t in from until to }
                 val sp = bucket.mapNotNull { it.speedKmh }.average().takeIf { !it.isNaN() }
                 val st = bucket.mapNotNull { it.steeringDeg }.average().takeIf { !it.isNaN() }
@@ -84,5 +84,6 @@ object ReportPayload {
 
 /** BuildConfig 의존을 한곳에 모은다. */
 private object BuildConfigUrl {
-    val viewer: String get() = app.truelog.BuildConfig.REPORT_VIEWER_URL
+    // 빌드 설정 캐시에 영향받지 않도록 코드에 직접 둔다 (GitHub Pages, 익명 계정)
+    const val viewer: String = "https://kongnamul-lab.github.io/truelog/report.html"
 }

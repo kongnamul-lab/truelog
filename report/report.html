@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>트루로그 주행 리포트</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Asta+Sans:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#F7F8FA; --surface:#FFFFFF; --line:#EDEEF2; --t100:#131417; --t84:rgba(19,20,23,.84); --t64:rgba(19,20,23,.64); --filled:#44464E; --ok:#02A456; --warn:#FF8A00; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#131417; --surface:#1D1E21; --line:#313236; --t100:#F7F8FA; --t84:rgba(247,248,250,.84); --t64:rgba(247,248,250,.64); --filled:#C7C9CE; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--t100); font-family:'Asta Sans', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+  main { max-width: 480px; margin: 0 auto; padding: 20px 16px 40px; display:flex; flex-direction:column; gap:16px; }
+  header { display:flex; align-items:center; justify-content:space-between; }
+  .brand { display:flex; align-items:center; gap:10px; font-weight:700; font-size:18px; }
+  .logo { width:32px; height:32px; border-radius:8px; background:#131417; display:flex; align-items:center; justify-content:center; }
+  .card { background:var(--surface); border-radius:16px; padding:20px; display:flex; flex-direction:column; gap:12px; }
+  h1 { margin:0; font-size:24px; font-weight:800; line-height:1.3; }
+  h2 { margin:0; font-size:17px; font-weight:700; }
+  .muted { color:var(--t64); font-size:13px; }
+  .badge { align-self:flex-start; font-size:13px; font-weight:700; border-radius:12px; padding:4px 10px; background:var(--warn); color:#131417; }
+  .ok { display:flex; align-items:center; gap:8px; font-weight:700; font-size:14px; }
+  dl { margin:0; display:grid; grid-template-columns: 120px minmax(0,1fr); row-gap:10px; font-size:15px; }
+  dt { color:var(--t64); } dd { margin:0; font-weight:700; }
+  svg { width:100%; display:block; }
+  .ok svg { width:18px; height:18px; flex:none; }
+  .axis { display:flex; justify-content:space-between; font-size:12px; color:var(--t64); }
+  .btn { height:52px; border-radius:12px; border:none; font:inherit; font-size:16px; font-weight:700; cursor:pointer; }
+  .primary { background:var(--filled); color:var(--bg); } .secondary { background:rgba(127,127,127,.12); color:var(--t100); }
+  .hash { font-family: ui-monospace, monospace; font-size:12px; color:var(--t64); word-break:break-all; }
+  .sim { color:var(--warn); font-size:14px; font-weight:700; }
+  .center { text-align:center; padding:48px 16px; }
+  @media print { .actions { display:none; } body { background:#fff; } .card { border:1px solid #ddd; } }
+</style>
+</head>
+<body>
+<main id="app"><div class="card center">리포트를 여는 중이에요…</div></main>
+<script>
+(function () {
+  const app = document.getElementById('app');
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const fmt = t => new Date(t).toLocaleString('ko-KR', { month:'long', day:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit' });
+
+  function fail(msg) { app.innerHTML = '<div class="card center"><h2>' + esc(msg) + '</h2><p class="muted">차 화면에서 QR 코드를 다시 만들어 주세요.</p></div>'; }
+
+  async function decode(b64) {
+    const norm = b64.replace(/-/g, '+').replace(/_/g, '/');
+    const bin = atob(norm + '==='.slice((norm.length + 3) % 4));
+    const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return JSON.parse(await new Response(stream).text());
+  }
+
+  function line(values, height, signed) {
+    const pts = values.map((v, i) => v == null ? null : [i, v]).filter(Boolean);
+    if (!pts.length) return '';
+    const maxAbs = Math.max(signed ? 30 : 10, ...pts.map(p => Math.abs(p[1])));
+    const y = v => signed ? height / 2 - (v / maxAbs) * (height / 2 - 4) : height - 4 - (v / maxAbs) * (height - 8);
+    const d = pts.map((p, i) => (i ? 'L' : 'M') + (p[0] * 340 / 60).toFixed(1) + ',' + y(p[1]).toFixed(1)).join(' ');
+    return '<path d="' + d + '" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>';
+  }
+  const marker = h => '<line x1="170" y1="0" x2="170" y2="' + h + '" stroke="#FF8A00" stroke-width="2" stroke-dasharray="5 4"/>';
+
+  function chart(title, values, h, signed, unit) {
+    const nums = values.filter(v => v != null);
+    if (!nums.length) return '';
+    const min = Math.min(...nums), max = Math.max(...nums);
+    if (max - min < 0.5) return '<span class="muted">' + title + '</span><div class="muted" style="padding:10px 0">변화 없음 (' + min + unit + ')</div>';
+    const base = signed ? '<line x1="0" y1="' + h/2 + '" x2="340" y2="' + h/2 + '" stroke="var(--line)"/>' : '<line x1="0" y1="' + (h-1) + '" x2="340" y2="' + (h-1) + '" stroke="var(--line)"/>';
+    return '<span class="muted">' + title + ' · 최대 ' + Math.max(...nums.map(Math.abs)) + unit + '</span>' +
+      '<svg viewBox="0 0 340 ' + h + '" style="height:' + h + 'px;color:var(--t100)" role="img" aria-label="' + title + '">' + base + line(values, h, signed) + marker(h) + '</svg>';
+  }
+
+  function brakeBar(bits) {
+    const bars = bits.map((b, i) => b ? '<rect x="' + (i * 340 / 61).toFixed(1) + '" y="6" width="' + (340 / 61 + 0.5).toFixed(1) + '" height="16" rx="2" fill="var(--filled)"/>' : '').join('');
+    return '<span class="muted">브레이크 (밟은 구간)</span><svg viewBox="0 0 340 28" style="height:28px" role="img" aria-label="브레이크 구간"><rect x="0" y="13" width="340" height="2" fill="var(--line)"/>' + bars + marker(28) + '</svg>';
+  }
+
+  function render(d) {
+    const sim = d.sim ? '<div class="sim">데모용 시뮬레이션 신호로 만든 기록이에요. 실제 차량 경고가 아니에요.</div>' : '';
+    const ok = d.ok
+      ? '<div class="ok"><svg width="18" height="18" viewBox="0 0 48 48" fill="none" stroke="#02A456" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 25l9 9 19-20"/></svg>기록 이후 변경 없음 (차량에서 확인)</div>'
+      : '<div class="ok" style="color:var(--warn)">기록 이후 내용이 바뀌었어요</div>';
+    const conds = (d.c || '').split(' · ').filter(Boolean).map(x => '<li>' + esc(x) + '</li>').join('');
+    const hasData = Array.isArray(d.s);
+    const left = Math.max(0, Math.round((d.exp - Date.now()) / 3600000));
+    app.innerHTML =
+      '<header><div class="brand"><div class="logo"><svg width="20" height="20" viewBox="0 0 48 48" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 30h8l5-12 6 18 5-10h12"/></svg></div>트루로그 주행 리포트</div><span class="muted">' + left + '시간 남음</span></header>' +
+      '<section class="card"><span class="badge">' + esc(d.r) + (d.sim ? ' (시뮬레이션)' : '') + '</span><h1>' + esc(fmt(d.t0)) + '</h1>' + sim + ok + '</section>' +
+      '<section class="card"><h2>재현 조건</h2><p class="muted" style="margin:0">이 순간의 차량 상태예요. 시운전 때 같은 조건을 만들어 볼 수 있어요.</p><ul style="margin:0;padding-left:18px;line-height:1.8;font-weight:700">' + conds + '</ul></section>' +
+      (hasData ? '<section class="card"><h2>전후 30초 주행 데이터</h2>' + chart('속도 (km/h)', d.s, 90, false, ' km/h') + brakeBar(d.b) + chart('조향각 (°)', d.a, 60, true, '°') + '<div class="axis"><span>-30초</span><b>기록 순간</b><span>+30초</span></div></section>' : '<section class="card"><h2>주행 데이터</h2><p class="muted" style="margin:0">운전자가 주행 데이터를 빼고 보냈어요.</p></section>') +
+      '<section class="card"><h2>정비소 진단기와 함께 보기</h2><p style="margin:0;font-size:15px;line-height:1.6;color:var(--t84)">진단기에서 ' + esc(new Date(d.t0).toLocaleTimeString('ko-KR')) + ' 전후에 저장된 고장 코드를 함께 확인하면, 이 기록의 운전 상황과 시간으로 맞춰 볼 수 있어요.</p></section>' +
+      '<section class="card"><h2>기록 확인 정보</h2><p class="muted" style="margin:0">차량에서 저장할 때 만든 고유값(SHA-256)이에요. 원본 기록과 대조할 수 있어요.</p><div class="hash">' + esc(d.h) + '</div><div class="muted">기록 번호 ' + esc(d.id) + '</div></section>' +
+      '<div class="actions" style="display:flex;flex-direction:column;gap:10px"><button class="btn primary" onclick="window.print()">PDF로 저장</button><button class="btn secondary" id="share">공유하기</button></div>' +
+      '<p class="muted" style="line-height:1.6">운전자 측 참고 기록이며 공식 사고 기록(EDR)을 대신하지 않아요. 고장 원인을 진단하지 않아요. 위치 정보는 담겨 있지 않아요.</p>';
+    const share = document.getElementById('share');
+    share.onclick = () => navigator.share ? navigator.share({ title: '트루로그 주행 리포트', url: location.href }).catch(() => {}) : navigator.clipboard?.writeText(location.href).then(() => share.textContent = '링크를 복사했어요');
+  }
+
+  const m = location.hash.match(/d=([A-Za-z0-9_-]+)/);
+  if (!m) return fail('리포트 데이터가 없어요');
+  if (!('DecompressionStream' in window)) return fail('이 브라우저에서는 리포트를 열 수 없어요');
+  decode(m[1]).then(d => {
+    if (d.v !== 1) return fail('지원하지 않는 리포트 형식이에요');
+    if (Date.now() > d.exp) return fail('표시 기한(24시간)이 지난 리포트예요');
+    render(d);
+  }).catch(() => fail('리포트를 읽지 못했어요'));
+})();
+</script>
+</body>
+</html>

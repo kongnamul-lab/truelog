@@ -1,0 +1,26 @@
+# Android Studio / Gradle
+*.iml
+.gradle/
+.kotlin/
+/.idea/
+/build/
+/app/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+.DS_Store
+Thumbs.db
+
+# PC 경로가 들어 있는 파일 (블라인드 심사: 절대 올리지 않음)
+local.properties
+
+# 비밀값·서명키 (절대 커밋 금지)
+secrets.properties
+keystore.properties
+*.jks
+*.keystore
+
+# 빌드 산출물 (제출용 release APK는 apk/ 폴더에만 둔다)
+*.apk
+*.aab
+!apk/*.apk

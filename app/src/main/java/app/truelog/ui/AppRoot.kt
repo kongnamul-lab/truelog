@@ -12,10 +12,23 @@ private enum class Route { MAIN, RECORDS, DEV }
 
 /** 화면 이동: 메인 → 기록 목록 → 기록 상세(리포트 보내기) / 개발 정보. */
 @Composable
-fun AppRoot(recorder: Recorder, onManualSave: () -> Unit, onToggleSimulation: () -> Unit) {
+fun AppRoot(
+    recorder: Recorder,
+    onManualSave: () -> Unit,
+    onToggleSimulation: () -> Unit,
+    voiceConsent: Boolean? = false,
+    voiceModeLabel: String = "",
+    onVoiceConsent: (Boolean) -> Unit = {},
+) {
     var route by remember { mutableStateOf(Route.MAIN) }
     var detailId by remember { mutableStateOf<String?>(null) }
     val records by recorder.records.collectAsState()
+
+    // 첫 실행: 한마디 기능 동의 (기본 꺼짐)
+    if (voiceConsent == null) {
+        VoiceConsentScreen(voiceModeLabel, onChoose = onVoiceConsent)
+        return
+    }
 
     val openId = detailId
     if (openId != null) {
@@ -24,8 +37,11 @@ fun AppRoot(recorder: Recorder, onManualSave: () -> Unit, onToggleSimulation: ()
             RecordDetailScreen(
                 detail,
                 recorder.similarTo(detail.summary),
+                recipe = recorder.recipeFor(detail.summary),
+                audioFile = recorder.audioFileFor(detail.summary.id),
                 onBack = { detailId = null },
                 onShared = { recorder.markShared(it) },
+                onDelete = { recorder.delete(it); detailId = null },
             )
             return
         }
@@ -40,6 +56,11 @@ fun AppRoot(recorder: Recorder, onManualSave: () -> Unit, onToggleSimulation: ()
             onOpenDev = { route = Route.DEV },
         )
         Route.RECORDS -> RecordsScreen(recorder, onBack = { route = Route.MAIN }, onOpen = { detailId = it })
-        Route.DEV -> TrueLogScreen(recorder, onManualSave, onToggleSimulation, onBack = { route = Route.MAIN })
+        Route.DEV -> TrueLogScreen(
+            recorder, onManualSave, onToggleSimulation,
+            onBack = { route = Route.MAIN },
+            voiceLine = "한마디 기능: " + (if (voiceConsent == true) "켜짐" else "꺼짐") + " · 듣는 방식: $voiceModeLabel",
+            onToggleVoice = { onVoiceConsent(voiceConsent != true) },
+        )
     }
 }

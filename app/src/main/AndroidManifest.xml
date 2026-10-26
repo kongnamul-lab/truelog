@@ -17,6 +17,16 @@
     <!-- 기록 순간 시스템 알림 (Android 13+ 런타임 허용) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- 한마디 증상 (v0.8): 운전자가 첫 실행 화면에서 켤 때만 요청, 기본 꺼짐 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Android 11+ 에서 음성 인식 서비스가 있는지 확인하려면 필요 -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
+
     <uses-feature android:name="android.hardware.type.automotive" android:required="false" />
 
     <application

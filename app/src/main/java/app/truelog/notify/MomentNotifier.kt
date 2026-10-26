@@ -67,6 +67,23 @@ class MomentNotifier(context: Context) {
             .onFailure { SignalHub.log("시스템 알림 실패: ${it.message}") }
     }
 
+    /** 한마디 듣기 안내 (v0.8.1): 주행 중 앱 화면이 가려져도 "지금 말하면 된다"를 보여 준다. */
+    fun notifyListening() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            appContext.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+        val n = NotificationCompat.Builder(appContext, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_truelog_small)
+            .setContentTitle("트루로그 · 한마디 듣기")
+            .setContentText("삐 소리 뒤 8초 동안 들어요. 어떤 느낌이었는지 말해 주세요.")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setOnlyAlertOnce(true)
+            .setTimeoutAfter(15_000)
+            .build()
+        runCatching { manager.notify(NOTIFICATION_ID, n) }
+    }
+
     private companion object {
         const val CHANNEL_ID = "truelog_moments"
         const val NOTIFICATION_ID = 1001

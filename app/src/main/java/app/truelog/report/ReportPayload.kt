@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.util.Base64
 import app.truelog.record.RecordDetail
+import app.truelog.record.Recipe
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
@@ -15,7 +16,7 @@ import java.util.zip.Deflater
 import java.util.zip.DeflaterOutputStream
 
 /** 운전자가 공유 범위 팝업에서 고른 내용. 위치는 v0.4에서 수집하지 않는다. */
-data class ShareScope(val includeDrivingData: Boolean)
+data class ShareScope(val includeDrivingData: Boolean, val includeNote: Boolean = false)
 
 /**
  * 휴대폰 리포트용 요약 데이터.
@@ -28,7 +29,7 @@ object ReportPayload {
     private const val VERSION = 2 // v2: 2초 간격 31점, 해시 앞 16자리 (QR 칸 수 줄이기)
     private const val SHOW_LIMIT_MS = 24L * 60 * 60 * 1000
 
-    fun build(detail: RecordDetail, scope: ShareScope, now: Long = System.currentTimeMillis()): String {
+    fun build(detail: RecordDetail, scope: ShareScope, recipe: Recipe? = null, now: Long = System.currentTimeMillis()): String {
         val r = detail.summary
         val t0 = r.triggeredAt
         val o = JSONObject()
@@ -41,6 +42,11 @@ object ReportPayload {
             .put("ok", r.unchanged)
             .put("h", r.hash.take(16))
             .put("exp", now + SHOW_LIMIT_MS)
+        // v0.8: 운전자 한마디(운전자가 고를 때만), 재현 레시피(같은 종류 2번 이상일 때)
+        if (scope.includeNote) r.note?.let { o.put("nt", it) }
+        if (recipe != null && recipe.lines.isNotEmpty()) {
+            o.put("rn", recipe.total).put("rc", JSONArray(recipe.lines))
+        }
 
         if (scope.includeDrivingData) {
             // 2초 간격 31개 점(-30초 ~ +30초)으로 줄여 담는다.

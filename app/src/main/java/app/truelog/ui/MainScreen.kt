@@ -93,9 +93,16 @@ fun MainScreen(
             ) {
                 Text("지금 차량 상태", fontSize = 26.sp, color = Pleos.Text64)
                 when {
+                    live.listeningSec != null -> {
+                        Text("말씀하세요", fontSize = 60.sp, fontWeight = FontWeight.Bold, color = Pleos.Text100)
+                        Text("어떤 느낌이었는지 한마디 · ${live.listeningSec}초 남음", fontSize = 30.sp, color = Pleos.Warning, fontWeight = FontWeight.Bold)
+                        Text("끝나면 삐삐 소리가 나요. 말하지 않아도 기록은 저장돼요.", fontSize = 24.sp, color = Pleos.Text64)
+                    }
                     status.lockingReason != null -> {
                         Text("이 순간을 기억하고 있어요", fontSize = 56.sp, fontWeight = FontWeight.Bold, color = Pleos.Text100, lineHeight = 66.sp)
-                        Text("${status.lockingReason} · 전후 30초 저장까지 ${status.lockRemainingSeconds}초", fontSize = 30.sp, color = Pleos.Warning, fontWeight = FontWeight.Bold)
+                        Text("${status.lockingReason} · 이후 30초까지 함께 담는 중 · ${status.lockRemainingSeconds}초 남음", fontSize = 28.sp, color = Pleos.Warning, fontWeight = FontWeight.Bold)
+                        Text("정비소에서 '그다음 어떻게 됐는지'도 보려고 30초를 더 담아요.", fontSize = 24.sp, color = Pleos.Text64)
+                        BigAction("기다리지 않고 지금 저장", onManualSave)
                     }
                     parked && recentSaved -> {
                         Text("정차했어요", fontSize = 60.sp, fontWeight = FontWeight.Bold, color = Pleos.Text100)
@@ -115,6 +122,7 @@ fun MainScreen(
                     parked -> {
                         Text("정차 중", fontSize = 60.sp, fontWeight = FontWeight.Bold, color = Pleos.Text100)
                         Text("최근 5분은 계속 기록하고 있어요.\n이상 순간이 오면 자동으로 기억해요.", fontSize = 30.sp, color = Pleos.Text84, lineHeight = 44.sp)
+                        BigAction("방금 상황 저장 · 지난 30초를 바로 남겨요", onManualSave)
                     }
                     else -> {
                         Text("정상 주행 중", fontSize = 60.sp, fontWeight = FontWeight.Bold, color = Pleos.Text100)
@@ -159,8 +167,6 @@ fun MainScreen(
                 Spacer(Modifier.width(16.dp))
                 Text("이상 순간이 없으면 계속 덮어써요", fontSize = 22.sp, color = Pleos.Text64, modifier = Modifier.weight(1f))
                 BasicButton("기록 보기 (${records.size})", onClick = onOpenRecords)
-                Spacer(Modifier.width(12.dp))
-                BasicButton("방금 상황 저장", onClick = onManualSave)
             }
             Ribbon(status.ribbon, locking = status.lockingReason != null)
             Row(Modifier.fillMaxWidth()) {
@@ -175,6 +181,17 @@ fun MainScreen(
             }
         }
     }
+}
+
+/** 상태 카드 안의 큰 버튼 (정차 중에만 보임). */
+@Composable
+private fun BigAction(label: String, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(containerColor = Pleos.Filled),
+        shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.fillMaxWidth().height(104.dp),
+    ) { Text(label, fontSize = 30.sp, fontWeight = FontWeight.Bold) }
 }
 
 @Composable

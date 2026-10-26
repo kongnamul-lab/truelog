@@ -44,6 +44,14 @@ data class RecordSummary(
     val socAt: Float? = null,
     /** 리포트로 보낸 적이 있는 기록 (자동 정리에서 제외). */
     val shared: Boolean = false,
+    /** 재현 레시피용 (v0.8): 기록 순간 조향각·기어·브레이크. */
+    val steerAt: Float? = null,
+    val gearAt: String? = null,
+    val brakeAt: Boolean? = null,
+    /** 운전자 한마디 (음성 인식 문장). 없으면 null. */
+    val note: String? = null,
+    /** 음성 인식이 안 되는 기기에서 남긴 8초 음성 메모가 있는지. */
+    val hasAudioNote: Boolean = false,
 ) {
     /** 정비소에 가져갈 "차량 경고" 기록인지 (목록의 주황 점). */
     val isWarning: Boolean get() = reason == "출력 제한 경고"
@@ -75,12 +83,16 @@ data class RecorderStatus(
  */
 class Recorder(
     context: Context,
-    private val onTrigger: (Trigger) -> Unit = {},
+    /** 기록 잠금 순간 호출. 두 번째 값은 이 기록에 붙을 id (한마디 붙이기용). */
+    private val onTrigger: (Trigger, String) -> Unit = { _, _ -> },
 ) {
 
     private val dir = File(context.filesDir, "records").apply { mkdirs() }
     private val prefs = context.getSharedPreferences("truelog_chain", Context.MODE_PRIVATE)
     private val sharedPrefs = context.getSharedPreferences("truelog_shared", Context.MODE_PRIVATE)
+    /** 운전자 한마디 보관 폴더: <id>.txt(문장 + 고유값) / <id>.m4a(음성 메모). 차 안에만 있다. */
+    val notesDir = File(context.filesDir, "notes").apply { mkdirs() }
+    private var pendingNote: String? = null
     private val buffer = ArrayDeque<Sample>()
 
     private var pending: Pair<Trigger, Long>? = null
@@ -115,6 +127,46 @@ class Recorder(
     }
 
     /**
+     * 운전자 한마디를 기록에 붙인다.
+     * 아직 잠금 중(사후 30초)이면 기록 본문에 넣어 함께 해시한다.
+     * 이미 저장된 뒤라면 <id>.txt에 문장과 그 문장의 고유값을 따로 남긴다.
+     */
+    fun attachNote(id: String, text: String) {
+        val clean = text.trim().take(200)
+        if (clean.isEmpty()) return
+        val p = pending
+        if (p != null && idFor(p.second) == id) {
+            pendingNote = clean
+            SignalHub.log("한마디를 이 기록에 붙여요: \"$clean\"")
+            return
+        }
+        File(notesDir, "$id.txt").writeText(JSONObject().put("text", clean).put("hash", sha256(clean)).toString())
+        SignalHub.log("한마디 저장(기록 뒤): \"$clean\"")
+        reloadRecords()
+    }
+
+    /** 운전자가 기록을 지운다 (정차 중 기록 상세에서). 한마디·음성 메모도 함께 지운다. */
+    fun delete(id: String) {
+        File(dir, "$id.json").delete()
+        File(notesDir, "$id.txt").delete()
+        File(notesDir, "$id.m4a").delete()
+        sharedPrefs.edit().remove(id).apply()
+        SignalHub.log("기록 지움: $id")
+        reloadRecords()
+    }
+
+    /** 음성 메모 파일 위치 (플랜 B). */
+    fun audioFileFor(id: String): File = File(notesDir, "$id.m4a")
+
+    fun audioNoteSaved() = reloadRecords()
+
+    /** 재현 레시피: 같은 종류 기록이 2번 이상일 때만. */
+    fun recipeFor(summary: RecordSummary): Recipe? = RecipeMaker.make(summary, records.value)
+
+    /** 기록 id는 잠금 시각으로 정해진다 (잠금 순간에 미리 알 수 있게). */
+    fun idFor(t0: Long): String = "TL-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.KOREA).format(Date(t0))
+
+    /**
      * 90일이 지난 기록을 정리한다(개인정보 최소 보관).
      * 차량 경고 기록, 직접 저장한 기록, 리포트로 보낸 기록은 남긴다.
      */
@@ -123,7 +175,11 @@ class Recorder(
             now - it.triggeredAt > KEEP_MS && !it.isWarning && !it.shared && it.reason != "방금 상황 저장"
         }
         if (old.isEmpty()) return
-        old.forEach { File(dir, "${it.id}.json").delete() }
+        old.forEach {
+            File(dir, "${it.id}.json").delete()
+            File(notesDir, "${it.id}.txt").delete()
+            File(notesDir, "${it.id}.m4a").delete()
+        }
         SignalHub.log("90일 지난 기록 ${old.size}건 정리")
         reloadRecords()
     }
@@ -231,14 +287,45 @@ class Recorder(
             peakKmh = peak,
             socAt = at?.optFloatOrNull("soc"),
             shared = sharedPrefs.getBoolean(id, false),
+            steerAt = at?.optFloatOrNull("steeringDeg"),
+            gearAt = at?.let { if (it.isNull("gear")) null else it.optString("gear") },
+            brakeAt = at?.let { if (!it.has("brake") || it.isNull("brake")) null else it.getBoolean("brake") },
+            note = body.optString("note", "").ifEmpty { null } ?: readNoteFile(id),
+            hasAudioNote = File(notesDir, "$id.m4a").let { it.exists() && it.length() > 0 },
         )
     }
+
+    /** 저장 뒤에 붙은 한마디. 문장의 고유값이 맞을 때만 보여 준다. */
+    private fun readNoteFile(id: String): String? = runCatching {
+        val f = File(notesDir, "$id.txt")
+        if (!f.exists()) return@runCatching null
+        val o = JSONObject(f.readText())
+        val text = o.getString("text")
+        if (sha256(text) == o.optString("hash")) text else null
+    }.getOrNull()
+
 
     private fun JSONObject.optFloatOrNull(key: String): Float? =
         if (!has(key) || isNull(key)) null else optDouble(key).toFloat()
 
     /** 정차 후 "방금 상황 저장". */
-    fun manualSave(now: Long) = trigger(Trigger("방금 상황 저장"), now)
+    /**
+     * "방금 상황 저장" (v0.8.1).
+     * - 평소: 지난 30초를 바로 저장한다 (기다리지 않음). "방금"이라는 이름 그대로 과거를 남기는 버튼.
+     * - 자동 기록이 이후 30초를 모으는 중이면: 기다리지 않고 지금까지 모은 데로 바로 저장한다.
+     */
+    fun manualSave(now: Long) {
+        val p = pending
+        if (p != null) {
+            SignalHub.log("기다리지 않고 바로 저장 (${p.first.label()}, 이후 ${(now - p.second) / 1000}초까지)")
+            finalize(p.first, p.second)
+            pending = null
+            return
+        }
+        trigger(Trigger("방금 상황 저장"), now)
+        pending?.let { finalize(it.first, it.second) }
+        pending = null
+    }
 
     private fun detectTrigger(now: Long, s: LiveState): Trigger? {
         val prev = previous ?: return null
@@ -262,8 +349,9 @@ class Recorder(
     private fun trigger(t: Trigger, now: Long) {
         if (pending != null) return // 이미 잠금 중이면 같은 기록에 포함
         pending = t to now
+        pendingNote = null
         SignalHub.log("기록 잠금 시작: ${t.label()} (전후 30초)")
-        onTrigger(t)
+        onTrigger(t, idFor(now))
     }
 
     private fun finalize(t: Trigger, t0: Long) {
@@ -273,7 +361,9 @@ class Recorder(
         val peak = samples.filter { it.t in (t0 - PEAK_LOOKBACK_MS)..t0 }.mapNotNull { it.speedKmh }.maxOrNull()
         val conditions = conditionText(atTrigger, peak.takeIf { t.reason == "급제동" })
         val prevHash = prefs.getString(KEY_HEAD, GENESIS) ?: GENESIS
-        val id = "TL-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.KOREA).format(Date(t0))
+        val id = idFor(t0)
+        val note = pendingNote
+        pendingNote = null
 
         val record = JSONObject().apply {
             put("format", "truelog-record-2")
@@ -282,6 +372,7 @@ class Recorder(
             put("simulated", t.simulated)
             put("triggeredAt", t0)
             put("conditions", conditions)
+            if (note != null) put("note", note) // 운전자 한마디도 해시에 포함
             put("prevHash", prevHash)
             put("samples", JSONArray().apply {
                 samples.forEach { s ->

@@ -15,8 +15,8 @@ android {
         applicationId = "app.truelog"
         minSdk = 28
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.6.0"
+        versionCode = 9
+        versionName = "0.8.1"
         buildConfigField("String", "VEHICLE_SDK_VERSION", "\"${libs.versions.vehicleSdk.get()}\"")
         // 휴대폰 리포트 보기 페이지 주소(임시 자리표시자). 익명 GitHub Pages에 report/report.html을 올리면 이 값만 바꾼다.
         buildConfigField("String", "REPORT_VIEWER_URL", "\"https://kongnamul-lab.github.io/truelog/report.html\"")

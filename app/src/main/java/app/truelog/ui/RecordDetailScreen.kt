@@ -47,6 +47,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.truelog.record.RecordDetail
+import app.truelog.record.Recipe
+import android.media.MediaPlayer
+import java.io.File
 import app.truelog.record.RecordSummary
 import app.truelog.record.Sample
 import app.truelog.report.ReportPayload
@@ -77,13 +80,17 @@ private const val WINDOW_MS = 30_000L
 fun RecordDetailScreen(
     detail: RecordDetail,
     similar: List<RecordSummary>,
+    recipe: Recipe? = null,
+    audioFile: File? = null,
     onBack: () -> Unit,
     onShared: (String) -> Unit = {},
+    onDelete: (String) -> Unit = {},
 ) {
     val r = detail.summary
     val t0 = r.triggeredAt
     var shareStep by remember(r.id) { mutableStateOf(ShareStep.NONE) }
     var includeDriving by remember(r.id) { mutableStateOf(true) }
+    var includeNote by remember(r.id) { mutableStateOf(r.note != null) }
     var forMechanic by remember(r.id) { mutableStateOf(false) }
     var reportUrl by remember(r.id) { mutableStateOf<String?>(null) }
 
@@ -106,7 +113,7 @@ fun RecordDetailScreen(
 
             Panel {
                 Text(
-                    r.reason + if (r.simulated) " (시뮬레이션)" else "",
+                    PlainText.title(r) + if (r.simulated) " (시뮬레이션)" else "",
                     fontSize = 36.sp, fontWeight = FontWeight.Bold, color = Text100,
                 )
                 Spacer(Modifier.height(6.dp))
@@ -134,16 +141,55 @@ fun RecordDetailScreen(
                 ConditionRows(detail.samples, t0)
             }
 
-            Panel {
-                Text("반복 패턴 (최근 14일)", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Text100)
-                Spacer(Modifier.height(8.dp))
-                if (similar.isEmpty()) {
-                    Text("같은 계기로 남은 다른 기록은 없어요.", fontSize = 20.sp, color = Text64)
-                } else {
-                    Text("같은 \"${r.reason}\" 기록이 ${similar.size + 1}번 있어요.", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Text100)
-                    similar.take(5).forEach { s ->
+            if (r.note != null || r.hasAudioNote) {
+                Panel {
+                    Text("운전자 한마디", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Text100)
+                    Spacer(Modifier.height(10.dp))
+                    if (r.note != null) {
+                        Text("\u201C${r.note}\u201D", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = Text100)
+                        Spacer(Modifier.height(6.dp))
+                        Text("기록 순간 음성으로 남긴 말이에요. 같은 시간의 차량 상태와 함께 봐 주세요.", fontSize = 18.sp, color = Text64)
+                    }
+                    if (r.hasAudioNote && audioFile != null) {
                         Spacer(Modifier.height(8.dp))
-                        Text("${dateTime(s.triggeredAt)} · ${s.conditions.ifEmpty { "초기 버전 기록 (조건 없음)" }}", fontSize = 18.sp, color = Text100)
+                        AudioNoteButton(audioFile)
+                        Spacer(Modifier.height(6.dp))
+                        Text("음성 인식이 안 되는 기기라 8초 음성 메모로 남겼어요. 차 안에만 있고 리포트에는 들어가지 않아요.", fontSize = 18.sp, color = Text64)
+                    }
+                }
+            }
+
+            Panel {
+                Text("재현 레시피", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Text100)
+                Spacer(Modifier.height(4.dp))
+                if (recipe == null) {
+                    Text("같은 종류 기록이 2번 이상 쌓이면 공통 조건을 정리해 드려요.", fontSize = 20.sp, color = Text64)
+                } else {
+                    Text("같은 \"${PlainText.title(r)}\" ${recipe.total}번의 공통 조건이에요. 이 조건으로 시운전해 보세요.", fontSize = 20.sp, color = Text64)
+                    Spacer(Modifier.height(12.dp))
+                    if (recipe.lines.isEmpty()) {
+                        Text("아직 뚜렷한 공통 조건이 없어요.", fontSize = 22.sp, color = Text100)
+                    } else {
+                        recipe.lines.forEach { line ->
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(52.dp)) {
+                                Box(Modifier.size(10.dp).clip(CircleShape).background(Filled))
+                                Spacer(Modifier.width(14.dp))
+                                Text(line, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Text100)
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text("원인을 추측하지 않아요. 여러 번의 기록에서 겹치는 조건만 모았어요.", fontSize = 16.sp, color = Text64)
+                }
+                if (similar.isNotEmpty()) {
+                    Spacer(Modifier.height(14.dp))
+                    Text("최근 14일 같은 기록", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Text64)
+                    similar.take(5).forEach { sm ->
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "${dateTime(sm.triggeredAt)} · ${sm.note?.let { n -> "\u201C$n\u201D" } ?: sm.conditions.ifEmpty { "조건 없음" }}",
+                            fontSize = 18.sp, color = Text100,
+                        )
                     }
                 }
             }
@@ -167,6 +213,11 @@ fun RecordDetailScreen(
             Text(
                 "운전자 측 참고 기록이에요. 공식 사고 기록(EDR)을 대신하지 않고, 고장 원인을 진단하지 않아요.",
                 fontSize = 16.sp, color = Text64,
+            )
+            Text(
+                "이 기록 지우기",
+                fontSize = 20.sp, color = Text64,
+                modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { shareStep = ShareStep.DELETE }.padding(horizontal = 12.dp, vertical = 14.dp),
             )
         }
 
@@ -206,14 +257,17 @@ fun RecordDetailScreen(
 
     when (shareStep) {
         ShareStep.SCOPE -> ShareScopeOverlay(
-            reason = r.reason,
+            reason = PlainText.title(r),
             includeDriving = includeDriving,
+            hasNote = r.note != null,
+            includeNote = includeNote,
+            onIncludeNote = { includeNote = it },
             onIncludeDriving = { includeDriving = it },
             forMechanic = forMechanic,
             onForMechanic = { forMechanic = it },
             onCancel = { shareStep = ShareStep.NONE },
             onConfirm = {
-                reportUrl = ReportPayload.build(detail, ShareScope(includeDrivingData = includeDriving))
+                reportUrl = ReportPayload.build(detail, ShareScope(includeDrivingData = includeDriving, includeNote = includeNote), if (includeDriving) recipe else null)
                 SignalHub.log("리포트 링크 생성: ${reportUrl?.length ?: 0}자")
                 android.util.Log.i("TrueLog", "REPORT_URL ${reportUrl}")
                 onShared(r.id) // 보낸 기록은 자동 정리에서 제외
@@ -221,14 +275,19 @@ fun RecordDetailScreen(
             },
         )
         ShareStep.QR -> reportUrl?.let { url ->
-            QrOverlay(url = url, includeDriving = includeDriving, forMechanic = forMechanic, onClose = { shareStep = ShareStep.NONE })
+            QrOverlay(url = url, includeDriving = includeDriving, includeNote = includeNote && r.note != null, forMechanic = forMechanic, onClose = { shareStep = ShareStep.NONE })
         }
+        ShareStep.DELETE -> DeleteOverlay(
+            hasNote = r.note != null || r.hasAudioNote,
+            onCancel = { shareStep = ShareStep.NONE },
+            onConfirm = { shareStep = ShareStep.NONE; onDelete(r.id) },
+        )
         ShareStep.NONE -> Unit
     }
     }
 }
 
-private enum class ShareStep { NONE, SCOPE, QR }
+private enum class ShareStep { NONE, SCOPE, QR, DELETE }
 
 /** v4 시안 B2: 공유 범위 선택 (정차 중, 운전자가 직접 열 때만). */
 @Composable
@@ -236,6 +295,9 @@ private fun ShareScopeOverlay(
     reason: String,
     includeDriving: Boolean,
     onIncludeDriving: (Boolean) -> Unit,
+    hasNote: Boolean,
+    includeNote: Boolean,
+    onIncludeNote: (Boolean) -> Unit,
     forMechanic: Boolean,
     onForMechanic: (Boolean) -> Unit,
     onCancel: () -> Unit,
@@ -260,7 +322,12 @@ private fun ShareScopeOverlay(
             }
             Text("리포트에 넣을 내용", fontSize = 22.sp, color = Text64)
             CheckRow("경고·기록 정보", "계기·시각·재현 조건·변경 없음 확인 (항상 포함)", checked = true, enabled = false) {}
-            CheckRow("주행 데이터", "속도·브레이크·조향 전후 30초", checked = includeDriving, enabled = true, onChange = onIncludeDriving)
+            CheckRow("주행 데이터", "속도·브레이크·조향 전후 30초 + 재현 레시피", checked = includeDriving, enabled = true, onChange = onIncludeDriving)
+            CheckRow(
+                "운전자 한마디",
+                if (hasNote) "기록 순간 음성으로 남긴 말 (문장)" else "이 기록에는 한마디가 없어요",
+                checked = hasNote && includeNote, enabled = hasNote, onChange = onIncludeNote,
+            )
             CheckRow("위치", "이 버전은 위치를 기록하지 않아요", checked = false, enabled = false) {}
             Text("QR로 연 리포트는 24시간 동안만 보여요. 원본 기록은 차 안에만 남고, 서버로 보내지 않아요.", fontSize = 20.sp, color = Text64)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -315,7 +382,7 @@ private fun CheckRow(title: String, sub: String, checked: Boolean, enabled: Bool
 
 /** v4 시안 B3: QR 코드. */
 @Composable
-private fun QrOverlay(url: String, includeDriving: Boolean, forMechanic: Boolean, onClose: () -> Unit) {
+private fun QrOverlay(url: String, includeDriving: Boolean, includeNote: Boolean, forMechanic: Boolean, onClose: () -> Unit) {
     val bitmap = remember(url) { runCatching { ReportPayload.qrBitmap(url) }.getOrNull() }
     Box(Modifier.fillMaxSize().background(Bg).clickable(enabled = false) {}) {
         Row(Modifier.fillMaxSize().padding(40.dp), horizontalArrangement = Arrangement.spacedBy(32.dp)) {
@@ -357,7 +424,7 @@ private fun QrOverlay(url: String, includeDriving: Boolean, forMechanic: Boolean
                     }
                 }
                 Text(
-                    "들어간 내용: 기록 정보" + (if (includeDriving) " · 주행 데이터 전후 30초" else "") + " · 위치 없음",
+                    "들어간 내용: 기록 정보" + (if (includeDriving) " · 주행 데이터 전후 30초" else "") + (if (includeNote) " · 운전자 한마디" else "") + " · 위치 없음",
                     fontSize = 22.sp, color = Text64,
                 )
                 Text("리포트는 24시간 동안만 보여요.", fontSize = 22.sp, color = Text64)
@@ -495,3 +562,64 @@ private fun SteeringChart(samples: List<Sample>, t0: Long) {
 
 private fun dateTime(t: Long): String = SimpleDateFormat("M월 d일 HH:mm:ss", Locale.KOREA).format(Date(t))
 private fun time(t: Long): String = SimpleDateFormat("HH:mm:ss", Locale.KOREA).format(Date(t))
+
+/** 8초 음성 메모 재생 (플랜 B). 차 안에서만. */
+@Composable
+private fun AudioNoteButton(file: File) {
+    var playing by remember(file) { mutableStateOf(false) }
+    val player = remember(file) { arrayOfNulls<MediaPlayer>(1) }
+    Button(
+        onClick = {
+            if (playing) {
+                runCatching { player[0]?.stop(); player[0]?.release() }
+                player[0] = null; playing = false
+            } else {
+                player[0] = runCatching {
+                    MediaPlayer().apply {
+                        setDataSource(file.absolutePath)
+                        setOnCompletionListener { it.release(); player[0] = null; playing = false }
+                        prepare(); start()
+                    }
+                }.getOrNull()
+                playing = player[0] != null
+            }
+        },
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0x0D131417), contentColor = Text100),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.height(72.dp),
+    ) { Text(if (playing) "■ 멈추기" else "▶ 음성 메모 듣기 (8초)", fontSize = 22.sp, fontWeight = FontWeight.Bold) }
+}
+
+/** 기록 지우기 확인 (정차 중). */
+@Composable
+private fun DeleteOverlay(hasNote: Boolean, onCancel: () -> Unit, onConfirm: () -> Unit) {
+    Box(
+        Modifier.fillMaxSize().background(Color(0x7A131417)).clickable(enabled = false) {},
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            Modifier.width(900.dp).clip(RoundedCornerShape(32.dp)).background(Surface).padding(horizontal = 56.dp, vertical = 44.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            Text("이 기록을 지울까요?", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Text100)
+            Text(
+                "차 안의 전후 30초 기록" + (if (hasNote) "과 운전자 한마디·음성 메모" else "") + "가 지워지고 되돌릴 수 없어요. 이미 보낸 리포트 링크나 PDF는 지워지지 않아요.",
+                fontSize = 24.sp, color = Text64,
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Button(
+                    onClick = onCancel,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0x0D131417), contentColor = Text100),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.weight(1f).height(88.dp),
+                ) { Text("취소", fontSize = 26.sp, fontWeight = FontWeight.Bold) }
+                Button(
+                    onClick = onConfirm,
+                    colors = ButtonDefaults.buttonColors(containerColor = Filled),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.weight(1f).height(88.dp),
+                ) { Text("지우기", fontSize = 26.sp, fontWeight = FontWeight.Bold) }
+            }
+        }
+    }
+}

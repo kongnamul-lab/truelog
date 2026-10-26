@@ -14,6 +14,9 @@ import app.truelog.signals.SignalHub
 import app.truelog.notify.MomentNotifier
 import app.truelog.ui.AppRoot
 import app.truelog.voice.Speaker
+import app.truelog.voice.SymptomListener
+import app.truelog.voice.VoicePrefs
+import androidx.compose.runtime.mutableStateOf
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -26,6 +29,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var recorder: Recorder
     private lateinit var speaker: Speaker
     private lateinit var notifier: MomentNotifier
+    private lateinit var listener: SymptomListener
+    /** 한마디 기능 동의: null = 아직 안 물어봄 (첫 실행 화면), 기본 꺼짐. */
+    private val voiceConsent = mutableStateOf<Boolean?>(null)
     private var simulationJob: Job? = null
 
     private val runtimePermissions = buildList {
@@ -37,14 +43,45 @@ class MainActivity : ComponentActivity() {
     private val permissionRequest =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { startCarProperties() }
 
+    private val micRequest =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            SignalHub.log(if (granted) "마이크 허용됨 (한마디 기능)" else "마이크가 허용되지 않아 한마디 기능은 쉬어요")
+        }
+
+    private fun voiceOn(): Boolean =
+        voiceConsent.value == true && checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+
+    private fun setVoice(on: Boolean) {
+        VoicePrefs.set(this, on)
+        voiceConsent.value = on
+        if (on && checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            micRequest.launch(android.Manifest.permission.RECORD_AUDIO)
+        }
+        SignalHub.log(if (on) "한마디 기능 켬" else "한마디 기능 끔")
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         speaker = Speaker(this)
         notifier = MomentNotifier(this)
-        recorder = Recorder(this, onTrigger = {
-            speaker.announce(it)
-            notifier.notify(it) // 주행 중 앱 화면이 가려져도 보이는 시스템 알림
+        listener = SymptomListener(this)
+        voiceConsent.value = VoicePrefs.get(this)
+        recorder = Recorder(this, onTrigger = { trigger, id ->
+            notifier.notify(trigger) // 주행 중 앱 화면이 가려져도 보이는 시스템 알림
+            speaker.announce(trigger) {
+                // 한마디: 운전자가 켰을 때만, 직접 저장은 묻지 않는다. 한 번만 묻고 다시 묻지 않는다.
+                if (voiceOn() && trigger.reason != "방금 상황 저장") {
+                    notifier.notifyListening()
+                    speaker.askSymptom {
+                        listener.listen(
+                            recorder.audioFileFor(id),
+                            onText = { text -> recorder.attachNote(id, text); speaker.confirmSymptom() },
+                            onAudio = { recorder.audioNoteSaved() },
+                        )
+                    }
+                }
+            }
         })
         pleos = PleosBridge(this)
         // 차량 서비스가 없는 일반 폰 에뮬레이터에서도 앱이 꺼지지 않게 한다.
@@ -69,6 +106,9 @@ class MainActivity : ComponentActivity() {
                 recorder = recorder,
                 onManualSave = { recorder.manualSave(System.currentTimeMillis()) },
                 onToggleSimulation = ::toggleSimulation,
+                voiceConsent = voiceConsent.value,
+                voiceModeLabel = listener.mode.label,
+                onVoiceConsent = ::setVoice,
             )
         }
     }
@@ -110,6 +150,7 @@ class MainActivity : ComponentActivity() {
         pleos.release()
         carProperties?.release()
         speaker.release()
+        listener.release()
         super.onDestroy()
     }
 

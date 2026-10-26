@@ -23,6 +23,7 @@ data class LiveState(
     val powerDownSimulated: Boolean = false, // 데모용 시뮬레이션 (항상 별도 표기)
     val brakeFluid: String? = null,       // Pleos Safety OilLevelState
     val engineOil: String? = null,        // Pleos Safety OilLevelState
+    val listeningSec: Int? = null,        // 한마디 듣는 중 남은 초 (v0.8.1)
 )
 
 /** 앱 전체가 공유하는 신호 저장소. 모든 갱신은 메인 스레드에서 한다. */

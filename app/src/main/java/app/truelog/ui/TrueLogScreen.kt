@@ -53,7 +53,14 @@ private val Active = Color(0xFF02C265)
 private val Warning = Color(0xFFFF8A00)
 
 @Composable
-fun TrueLogScreen(recorder: Recorder, onManualSave: () -> Unit, onToggleSimulation: () -> Unit, onBack: () -> Unit = {}) {
+fun TrueLogScreen(
+    recorder: Recorder,
+    onManualSave: () -> Unit,
+    onToggleSimulation: () -> Unit,
+    onBack: () -> Unit = {},
+    voiceLine: String = "",
+    onToggleVoice: () -> Unit = {},
+) {
     val live by SignalHub.state.collectAsState()
     val status by recorder.status.collectAsState()
     val records by recorder.records.collectAsState()
@@ -83,13 +90,23 @@ fun TrueLogScreen(recorder: Recorder, onManualSave: () -> Unit, onToggleSimulati
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             BasicButton("← 처음 화면", onClick = onBack)
-            Text("개발 정보 · v0.6", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Text100)
+            Text("개발 정보 · v0.8", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Text100)
             Text(
                 "Vehicle SDK ${BuildConfig.VEHICLE_SDK_VERSION} · " +
                     (if (live.sdkReady) "SDK 연결됨" else "SDK 연결 전") + " · " +
                     (if (live.carServiceReady) "차량 속성 연결됨" else "차량 속성 연결 전"),
                 fontSize = 20.sp, color = Text64,
             )
+            Card {
+                Text(voiceLine, fontSize = 20.sp, color = Text100)
+                Spacer(Modifier.height(10.dp))
+                Button(
+                    onClick = onToggleVoice,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0x0D131417), contentColor = Text100),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth().height(72.dp),
+                ) { Text("한마디 기능 켜기/끄기", fontSize = 22.sp, fontWeight = FontWeight.Bold) }
+            }
             Card {
                 SignalRow("속도", live.speedKmh?.let { "%.0f km/h".format(it) })
                 SignalRow("기어", live.gear)

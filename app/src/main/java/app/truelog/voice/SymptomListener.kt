@@ -140,6 +140,9 @@ class SymptomListener(context: Context) {
                 setAudioSource(MediaRecorder.AudioSource.MIC)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setAudioChannels(1)
+                setAudioSamplingRate(48_000)
+                setAudioEncodingBitRate(96_000)
                 setOutputFile(file.absolutePath)
                 prepare()
                 start()
@@ -149,7 +152,11 @@ class SymptomListener(context: Context) {
         recorder = rec
         SignalHub.log("한마디 음성 메모 녹음 중 (8초)")
         main.postDelayed({
-            runCatching { recorder?.stop() }.onFailure { file.delete() }
+            // stop()은 마이크에서 소리가 한 번도 들어오지 않으면 실패한다(10/26 실측: 음성 메모 미생성의 원인).
+            runCatching { recorder?.stop() }.onFailure {
+                file.delete()
+                SignalHub.log("마이크 입력이 들어오지 않아 음성 메모를 남기지 못했어요 (PC 마이크 음소거·에뮬레이터 마이크 설정 확인)")
+            }
             runCatching { recorder?.release() }
             recorder = null
             busy = false

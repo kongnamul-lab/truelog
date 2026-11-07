@@ -13,8 +13,6 @@ import app.truelog.signals.PleosBridge
 import app.truelog.signals.SignalHub
 import app.truelog.notify.MomentNotifier
 import app.truelog.ui.AppRoot
-import app.truelog.voice.Speaker
-import app.truelog.voice.SymptomListener
 import app.truelog.voice.VoicePrefs
 import androidx.compose.runtime.mutableStateOf
 import kotlinx.coroutines.Job
@@ -27,9 +25,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var pleos: PleosBridge
     private var carProperties: CarPropertyBridge? = null
     private lateinit var recorder: Recorder
-    private lateinit var speaker: Speaker
+    private lateinit var speaker: VoiceOut
     private lateinit var notifier: MomentNotifier
-    private lateinit var listener: SymptomListener
+    private lateinit var listener: VoiceIn
     /** 한마디 기능 동의: null = 아직 안 물어봄 (첫 실행 화면), 기본 꺼짐. */
     private val voiceConsent = mutableStateOf<Boolean?>(null)
     private var simulationJob: Job? = null
@@ -63,9 +61,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        speaker = Speaker(this)
+        speaker = VoiceOut(this) // v0.9: Pleos TextToSpeech 우선
         notifier = MomentNotifier(this)
-        listener = SymptomListener(this)
+        listener = VoiceIn(this) // v0.9: Pleos SpeechToText 우선
         voiceConsent.value = VoicePrefs.get(this)
         recorder = Recorder(this, onTrigger = { trigger, id ->
             notifier.notify(trigger) // 주행 중 앱 화면이 가려져도 보이는 시스템 알림
@@ -107,7 +105,7 @@ class MainActivity : ComponentActivity() {
                 onManualSave = { recorder.manualSave(System.currentTimeMillis()) },
                 onToggleSimulation = ::toggleSimulation,
                 voiceConsent = voiceConsent.value,
-                voiceModeLabel = listener.mode.label,
+                voiceModeLabel = listener.label.value + " · 안내 음성: " + speaker.label.value,
                 onVoiceConsent = ::setVoice,
             )
         }

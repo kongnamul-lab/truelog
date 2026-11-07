@@ -90,7 +90,7 @@ fun TrueLogScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             BasicButton("← 처음 화면", onClick = onBack)
-            Text("개발 정보 · v0.8", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Text100)
+            Text("개발 정보 · v${app.truelog.BuildConfig.VERSION_NAME}", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Text100)
             Text(
                 "Vehicle SDK ${BuildConfig.VEHICLE_SDK_VERSION} · " +
                     (if (live.sdkReady) "SDK 연결됨" else "SDK 연결 전") + " · " +
@@ -106,28 +106,6 @@ fun TrueLogScreen(
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.fillMaxWidth().height(72.dp),
                 ) { Text("한마디 기능 켜기/끄기", fontSize = 22.sp, fontWeight = FontWeight.Bold) }
-            }
-            Card {
-                SignalRow("속도", live.speedKmh?.let { "%.0f km/h".format(it) })
-                SignalRow("기어", live.gear)
-                SignalRow("브레이크", live.brakePressed?.let { if (it) "밟음" else "뗌" })
-                SignalRow("조향각", live.steeringDeg?.let { "%.0f°".format(it) })
-                SignalRow("배터리 잔량", live.batterySoc?.let { "%.0f %%".format(it) })
-                SignalRow("주행 가능 거리", live.rangeKm?.let { "%.0f km".format(it) })
-                // 비상등: Android CAR_EXTERIOR_LIGHTS 권한이 시스템 전용이라 일반 앱은 읽을 수 없다(10/25 확인).
-                SignalRow("비상등", live.hazardOn?.let { if (it) "켜짐" else "꺼짐" } ?: "제조사 연계 시 제공", highlight = live.hazardOn == true)
-                SignalRow(
-                    "출력 제한 경고",
-                    when {
-                        live.powerDownSimulated -> "켜짐 (시뮬레이션)"
-                        live.powerDownWarning == true -> "켜짐"
-                        live.powerDownWarning == false -> "꺼짐"
-                        else -> null
-                    },
-                    highlight = live.powerDownWarning == true || live.powerDownSimulated,
-                )
-                SignalRow("브레이크액", live.brakeFluid)
-                SignalRow("엔진오일", live.engineOil, last = true)
             }
             Card {
                 Text("최근 5분 상시 기록", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Text100)
@@ -158,6 +136,28 @@ fun TrueLogScreen(
                         fontSize = 22.sp, fontWeight = FontWeight.Bold,
                     )
                 }
+            }
+            Card {
+                SignalRow("속도", live.speedKmh?.let { "%.0f km/h".format(it) })
+                SignalRow("기어", live.gear)
+                SignalRow("브레이크", live.brakePressed?.let { if (it) "밟음" else "뗌" })
+                SignalRow("조향각", live.steeringDeg?.let { "%.0f°".format(it) })
+                SignalRow("배터리 잔량", live.batterySoc?.let { "%.0f %%".format(it) })
+                SignalRow("주행 가능 거리", live.rangeKm?.let { "%.0f km".format(it) })
+                // 비상등: Android CAR_EXTERIOR_LIGHTS 권한이 시스템 전용이라 일반 앱은 읽을 수 없다(10/25 확인).
+                SignalRow("비상등", live.hazardOn?.let { if (it) "켜짐" else "꺼짐" } ?: "제조사 연계 시 제공", highlight = live.hazardOn == true)
+                SignalRow(
+                    "출력 제한 경고",
+                    when {
+                        live.powerDownSimulated -> "켜짐 (시뮬레이션)"
+                        live.powerDownWarning == true -> "켜짐"
+                        live.powerDownWarning == false -> "꺼짐"
+                        else -> null
+                    },
+                    highlight = live.powerDownWarning == true || live.powerDownSimulated,
+                )
+                SignalRow("브레이크액", live.brakeFluid)
+                SignalRow("엔진오일", live.engineOil, last = true)
             }
         }
 
